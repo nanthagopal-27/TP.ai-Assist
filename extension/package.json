@@ -1,0 +1,33 @@
+{
+  "name": "orbit-pixiebrix-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "dev": "node scripts/gen-brand.mjs && node scripts/dev.mjs",
+    "build": "node scripts/clean.mjs && node scripts/gen-brand.mjs && tsc --noEmit && vite build && node scripts/fix-sw-sourcemap.mjs && vite build --config vite.content.config.ts && node scripts/copy-ocr.mjs",
+    "brand": "node scripts/gen-brand.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.13.3",
+    "@emotion/styled": "^11.13.0",
+    "@mui/icons-material": "^6.1.0",
+    "@mui/material": "^6.1.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270",
+    "@types/node": "^22.7.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  }
+}
