@@ -1,7 +1,6 @@
-import type { EmailResult, WidgetDef } from '../../shared/types';
+import type { WidgetDef } from '../../shared/types';
 import { EMAIL_RE } from '../../shared/draft';
 import { attachStyles, h, HOST_ATTR } from '../dom';
-import { rpc } from '../messaging';
 import { getSnapshot } from '../selection';
 import { WIDGET_CSS } from '../styles';
 
@@ -109,46 +108,18 @@ async function openDialog(def: WidgetDef, label: string): Promise<void> {
     err.style.display = t ? '' : 'none';
   };
 
-  send.addEventListener('click', async () => {
+  // This widget is no longer offered in the palette (see shared/draft.ts) - there's no backend
+  // left to send mail through (a browser extension can't speak SMTP itself). Left here only so
+  // any already-placed "Escalate" widget from before still shows a clear message instead of
+  // silently doing nothing.
+  send.addEventListener('click', () => {
     const to = email.value.trim();
     if (!EMAIL_RE.test(to)) {
       showError('Enter a valid e-mail address, e.g. name@company.com');
       email.focus();
       return;
     }
-    showError('');
-    send.disabled = true;
-    send.textContent = 'Sending…';
-    const v = vars(to, note.value);
-    try {
-      const r = await rpc<EmailResult>({
-        type: 'ORBIT_API_CALL',
-        path: '/api/send-email',
-        method: 'POST',
-        body: {
-          to,
-          subject: fillTemplate(p.subject ?? '', v).slice(0, 200),
-          body: fillTemplate(p.body ?? '', v).slice(0, 20000),
-          widget_id: def.id,
-          page_url: location.href.slice(0, 2000),
-        },
-      });
-      if (ask) void chrome.storage.local.set({ [LAST_EMAIL_KEY]: to }).catch(() => undefined);
-      const done = h(
-        'div',
-        { class: 'dlg-done' },
-        h('div', { class: r.mode === 'mock' ? 'big warn' : 'big ok' }, r.mode === 'mock' ? '!' : '✓'),
-        h('div', { class: 'done-t' }, r.mode === 'mock' ? 'Demo mode - not actually sent' : p.successMessage?.trim() || 'E-mail sent.'),
-        h('div', { class: 'done-s' }, r.message),
-      );
-      const ok = h('button', { class: 'run', type: 'button' }, 'Close');
-      ok.addEventListener('click', close);
-      dialog.replaceChildren(h('div', { class: 'dlg-head' }, h('span', { class: 'mi' }, '✉'), label), done, h('div', { class: 'dlg-foot' }, ok));
-    } catch (e) {
-      showError(e instanceof Error ? e.message : String(e));
-      send.disabled = false;
-      send.textContent = 'Try again';
-    }
+    showError('Sending e-mail is no longer available - this feature needed a backend that this project no longer has.');
   });
 
   shadow.appendChild(modal);

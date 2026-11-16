@@ -4,7 +4,6 @@ import brand from '../../brand.config.json';
 /** Single source of truth for the product name. Edit extension/brand.config.json to rename. */
 export const PRODUCT_NAME = brand.productName;
 export const SHORT_NAME = brand.shortName;
-export const DEFAULT_BACKEND_URL = 'https://tp-ai-assist.onrender.com';
 
 /** Custom MIME type used to drag a component straight from the side panel's palette onto the
  *  active page via the browser's native (OS-level) Drag and Drop API. Unlike a popup (which
@@ -26,7 +25,6 @@ export const PRODUCT_INITIALS = PRODUCT_NAME
   .join('') || 'OR';
 
 export const STORAGE_KEYS = {
-  backendUrl: 'orbit.backendUrl',
   targetLanguage: 'orbit.targetLanguage',
   replaceOnPage: 'orbit.replaceOnPage',
   autofill: 'orbit.autofill',

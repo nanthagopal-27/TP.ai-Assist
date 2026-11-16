@@ -1,0 +1,9 @@
+{
+  "tokenEndpoint": "https://7e1d48dfddd3e469a5bfc1b70c2c48.48.environment.api.powerplatform.com/powervirtualagents/botsbyschema/new_APItranslatesummary/directline/token?api-version=2022-03-01-preview",
+  "directLineBaseUrl": "https://europe.directline.botframework.com",
+  "responseTimeoutMs": 30000,
+  "pollIntervalMs": 500,
+  "ocrCapabilityConfigured": true,
+  "mockMode": false,
+  "maxContextChars": 30000
+}

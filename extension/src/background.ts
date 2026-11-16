@@ -1,25 +1,16 @@
 /**
  * Service worker.
- * Routes messages between the content script, the side panel and the local Node.js backend.
- * All backend calls happen HERE (not in the page) so web pages never see them and
- * HTTPS pages can still reach http://localhost without mixed-content errors.
+ * Routes messages between the content script and the side panel, and talks to Copilot Studio
+ * directly over its Direct Line REST API (see background/copilot.ts) - there is no backend
+ * server anywhere in this picture. Everything here runs inside the extension itself.
  */
-import { DEFAULT_BACKEND_URL, PRODUCT_NAME, SHORT_NAME, STORAGE_KEYS } from './shared/config';
+import { PRODUCT_NAME, SHORT_NAME } from './shared/config';
 import { fetchWeather } from './shared/weather';
-import type {
-  ActiveTabContext,
-  AIRequestPayload,
-  AIResponse,
-  BgResponse,
-  ExtMessage,
-  OcrResult,
-  PageContext,
-  WeatherData,
-} from './shared/types';
+import { copilotConfigured, ocrWithCopilot, routeAction } from './background/copilot';
+import type { ActiveTabContext, BgResponse, ExtMessage, OcrResult, PageContext } from './shared/types';
 
 const MENU_SELECTION = 'orbit-ask-selection';
 const MENU_PAGE = 'orbit-open-panel';
-const REQUEST_TIMEOUT_MS = 90_000;
 const EDIT_KEY = 'orbit.editWidget';
 
 // ----------------------------------------------------------------------------
@@ -110,58 +101,6 @@ async function setSelection(tabId: number, text: string) {
 /** Fire-and-forget message to extension pages (side panel). Ignore "no receiver". */
 function broadcast(msg: ExtMessage) {
   chrome.runtime.sendMessage(msg).catch(() => undefined);
-}
-
-async function getBackendUrl(): Promise<string> {
-  const stored = await chrome.storage.local.get(STORAGE_KEYS.backendUrl);
-  const url = (stored[STORAGE_KEYS.backendUrl] as string | undefined) || DEFAULT_BACKEND_URL;
-  return url.replace(/\/+$/, '');
-}
-
-async function callBackend<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
-  const base = await getBackendUrl();
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${base}${path}`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    const raw = await res.text();
-    let json: unknown = null;
-    try {
-      json = raw ? JSON.parse(raw) : null;
-    } catch {
-      /* non-JSON error body */
-    }
-    if (!res.ok) {
-      const detail = (json as { detail?: unknown } | null)?.detail;
-      const msg =
-        typeof detail === 'string'
-          ? detail
-          : Array.isArray(detail)
-            ? detail
-                .map((d: { msg?: string; loc?: unknown[] }) => `${String(d.loc?.slice(-1)[0] ?? '')}: ${(d.msg ?? '').replace(/^Value error, /, '')}`)
-                .join(' · ')
-            : detail
-              ? JSON.stringify(detail)
-              : `Backend returned HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-    return json as T;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('The request timed out. Please try again.');
-    }
-    if (err instanceof TypeError) {
-      throw new Error(`Cannot reach the ${SHORT_NAME} backend at ${base}. Is it running? (npm run dev, in backend/)`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 const isRestricted = (url: string | undefined) =>
@@ -261,21 +200,9 @@ async function handle(msg: ExtMessage, sender: chrome.runtime.MessageSender): Pr
     case 'ORBIT_GET_CONTEXT':
       return getActiveContext();
     case 'ORBIT_RUN_ACTION':
-      return callBackend<AIResponse>('/api/ai', 'POST', msg.payload satisfies AIRequestPayload);
-    case 'ORBIT_WEATHER': {
-      // 1) straight from Open-Meteo using the browser's network; 2) fall back to the local backend.
-      try {
-        return await fetchWeather(msg.location, msg.units);
-      } catch (direct) {
-        try {
-          return await callBackend<WeatherData>(`/api/weather?location=${encodeURIComponent(msg.location)}&units=${msg.units}`);
-        } catch (viaBackend) {
-          const d = direct instanceof Error ? direct.message : String(direct);
-          const v = viaBackend instanceof Error ? viaBackend.message : String(viaBackend);
-          throw new Error(/find a place/i.test(d) ? d : `Could not load weather (${d}). Backend fallback: ${v}`);
-        }
-      }
-    }
+      return routeAction(msg.payload);
+    case 'ORBIT_WEATHER':
+      return fetchWeather(msg.location, msg.units);
     case 'ORBIT_CAPTURE_TAB': {
       // screenshot of the visible part of the sender's tab (used by the OCR area selector)
       const windowId = sender.tab?.windowId;
@@ -283,8 +210,8 @@ async function handle(msg: ExtMessage, sender: chrome.runtime.MessageSender): Pr
     }
     case 'ORBIT_OCR':
       return runOcr(msg.image, msg.engine);
-    case 'ORBIT_API_CALL':
-      return callBackend(msg.path, msg.method ?? 'GET', msg.body);
+    case 'ORBIT_COPILOT_HEALTH':
+      return { configured: copilotConfigured() };
     default:
       // Broadcast messages addressed to the side panel - nothing to do here.
       return undefined;
@@ -292,7 +219,7 @@ async function handle(msg: ExtMessage, sender: chrome.runtime.MessageSender): Pr
 }
 
 // ----------------------------------------------------------------------------
-// OCR: "local" = offline Tesseract inside an offscreen document, "ai" = Copilot Studio vision via the backend
+// OCR: "local" = offline Tesseract inside an offscreen document, "ai" = Copilot Studio vision, called directly
 // ----------------------------------------------------------------------------
 let creatingOffscreen: Promise<void> | null = null;
 
@@ -311,10 +238,23 @@ async function ensureOffscreen(): Promise<void> {
   await creatingOffscreen;
 }
 
+const OCR_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([\s\S]+)$/;
+
+function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
+  const match = OCR_DATA_URL_RE.exec(dataUrl);
+  if (!match) throw new Error('Expected a PNG / JPEG / WebP image as a base64 data URL.');
+  const [, mime, b64] = match;
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return { mime, bytes };
+}
+
 async function runOcr(image: string, engine: 'local' | 'ai'): Promise<OcrResult> {
   if (engine === 'ai') {
-    const r = await callBackend<{ text: string; engine: string }>('/api/ocr', 'POST', { image });
-    return { text: r.text, engine: r.engine };
+    const { mime, bytes } = decodeDataUrl(image);
+    const text = await ocrWithCopilot(bytes, mime);
+    return { text: text.trim() || '(no text found)', engine: 'copilot-studio' };
   }
   await ensureOffscreen();
   const res = (await chrome.runtime.sendMessage({ type: 'ORBIT_OFFSCREEN_OCR', image })) as

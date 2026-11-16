@@ -2,10 +2,10 @@ import type { FormField, WidgetDef } from '../../shared/types';
 import { slug } from '../../shared/config';
 import { normalizeUrl } from '../../shared/utils';
 import { h } from '../dom';
-import { rpc } from '../messaging';
 import { buildField, type FieldControl } from './fields';
 
-/** A form made of several fields with Submit. Submissions are saved in the local SQLite database. */
+/** A form made of several fields with Submit. There's no backend to persist submissions to -
+ *  this just validates and shows a success state; nothing is stored anywhere. */
 export function buildForm(def: WidgetDef): HTMLElement {
   const p = def.props ?? {};
   const fields: FormField[] = p.fields ?? [];
@@ -17,7 +17,7 @@ export function buildForm(def: WidgetDef): HTMLElement {
     status.style.display = 'none';
     const submit = h('button', { class: 'run full', type: 'button' }, p.submitLabel || 'Submit');
 
-    submit.addEventListener('click', async () => {
+    submit.addEventListener('click', () => {
       const errors = controls.map((c) => c.validate(true)).filter(Boolean);
       if (errors.length) {
         status.textContent = 'Please fix the highlighted fields.';
@@ -25,30 +25,7 @@ export function buildForm(def: WidgetDef): HTMLElement {
         return;
       }
       status.style.display = 'none';
-      submit.disabled = true;
-      submit.textContent = 'Submitting…';
-      const data: Record<string, string> = {};
-      controls.forEach((c) => (data[c.spec.name] = c.get()));
-      try {
-        await rpc({
-          type: 'ORBIT_API_CALL',
-          path: '/api/submissions',
-          method: 'POST',
-          body: {
-            form_title: p.title || 'Form',
-            widget_id: def.id,
-            page_url: location.href,
-            page_title: document.title,
-            data,
-          },
-        });
-        showSuccess(controls);
-      } catch (e) {
-        status.textContent = e instanceof Error ? e.message : String(e);
-        status.style.display = '';
-        submit.disabled = false;
-        submit.textContent = p.submitLabel || 'Submit';
-      }
+      showSuccess(controls);
     });
 
     root.replaceChildren(

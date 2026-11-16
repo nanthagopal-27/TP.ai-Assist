@@ -12,6 +12,3 @@ export function send<T = unknown>(msg: ExtMessage): Promise<T> {
     });
   });
 }
-
-export const api = <T,>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown) =>
-  send<T>({ type: 'ORBIT_API_CALL', path, method, body });

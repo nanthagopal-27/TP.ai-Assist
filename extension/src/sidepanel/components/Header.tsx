@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { Box, Chip, IconButton, Tooltip } from '@mui/material';
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import type { HealthInfo } from '../../shared/types';
 import Logo from './Logo';
 
 /** Optional second, smaller logo shown beside the main one (e.g. a partner/solution-engineering
@@ -27,17 +25,12 @@ function SecondaryLogo({ onFailed }: { onFailed: () => void }) {
 }
 
 interface Props {
-  health: HealthInfo | null;
-  online: boolean;
+  configured: boolean;
   onRefresh: () => void;
-  onSettings: () => void;
 }
 
-const formatModel = (model: string): string =>
-  model.split('-').map((w) => w[0]?.toUpperCase() + w.slice(1)).join(' ');
-
-export default function Header({ health, online, onRefresh, onSettings }: Props) {
-  const label = !online ? 'Backend offline' : health?.mock ? 'Mock mode' : formatModel(health?.model || 'Connected');
+export default function Header({ configured, onRefresh }: Props) {
+  const label = configured ? 'Copilot Studio' : 'Not configured';
   const [showSecondary, setShowSecondary] = useState(true);
   return (
     <Box
@@ -59,24 +52,13 @@ export default function Header({ health, online, onRefresh, onSettings }: Props)
           icon={
             <Box
               component="span"
-              sx={{ width: 8, height: 8, borderRadius: '50%', ml: '8px !important', bgcolor: online ? 'success.main' : 'grey.500' }}
+              sx={{ width: 8, height: 8, borderRadius: '50%', ml: '8px !important', bgcolor: configured ? 'success.main' : 'grey.500' }}
             />
           }
           sx={{ fontSize: 11, height: 24 }}
         />
         <Tooltip title="Re-read this page">
           <IconButton size="small" onClick={onRefresh}><RefreshIcon fontSize="small" /></IconButton>
-        </Tooltip>
-        <Tooltip title="Settings">
-          <IconButton
-            size="small"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onSettings();
-            }}
-          >
-            <SettingsOutlinedIcon fontSize="small" />
-          </IconButton>
         </Tooltip>
       </Box>
     </Box>

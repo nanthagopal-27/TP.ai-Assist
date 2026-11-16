@@ -1,38 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Tab, Tabs, Typography } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import type { ExtMessage, HealthInfo } from '../shared/types';
+import type { ExtMessage } from '../shared/types';
 import { ACTION_ORDER } from '../shared/config';
 import { usePageContext } from './hooks/usePageContext';
-import { api } from './lib/bridge';
+import { send } from './lib/bridge';
 import { ACTIONS } from './lib/workflows';
 import Header from './components/Header';
 import WidgetsTab from './components/WidgetsTab';
-import SettingsDialog from './components/SettingsDialog';
 
 export default function App() {
   const page = usePageContext();
   const [tab, setTab] = useState<'assist' | 'widgets'>('assist');
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [health, setHealth] = useState<HealthInfo | null>(null);
-  const [online, setOnline] = useState(false);
+  const [copilotConfigured, setCopilotConfigured] = useState(false);
 
-  // ---- backend health -------------------------------------------------------
-  const checkHealth = useCallback(async () => {
-    try {
-      setHealth(await api<HealthInfo>('/api/health'));
-      setOnline(true);
-    } catch {
-      setOnline(false);
-    }
-  }, []);
-
+  // Copilot Studio is called directly from this extension (see background/copilot.ts) - no
+  // backend to poll, this just checks once whether a token endpoint is actually set.
   useEffect(() => {
-    void checkHealth();
-    const t = window.setInterval(checkHealth, 20_000);
-    return () => window.clearInterval(t);
-  }, [checkHealth]);
+    void send<{ configured: boolean }>({ type: 'ORBIT_COPILOT_HEALTH' })
+      .then((r) => setCopilotConfigured(r.configured))
+      .catch(() => setCopilotConfigured(false));
+  }, []);
 
   // ---- "Edit" clicked on a widget inside the page -> open the Widgets tab with its properties
   useEffect(() => {
@@ -57,7 +46,7 @@ export default function App() {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-      <Header health={health} online={online} onRefresh={page.refresh} onSettings={() => setSettingsOpen(true)} />
+      <Header configured={copilotConfigured} onRefresh={page.refresh} />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth" sx={{ bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider', minHeight: 40 }} TabIndicatorProps={{ sx: { bgcolor: 'grey.800' } }}>
         <Tab value="assist" label="Assist Summary" />
         <Tab value="widgets" label="Widgets" />
@@ -105,8 +94,6 @@ export default function App() {
           </>
         )}
       </Box>
-
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} onSaved={checkHealth} />
     </Box>
   );
 }

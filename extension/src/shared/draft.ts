@@ -18,7 +18,8 @@ export const COMPONENT_META: ComponentMeta[] = [
   { kind: 'radio', label: 'Radio Group', hint: 'Choose one option', group: 'Inputs' },
   { kind: 'form', label: 'Form', hint: 'Fields + Submit', group: 'Actions & data' },
   { kind: 'button', label: 'Link Button', hint: 'Opens any link', group: 'Actions & data' },
-  { kind: 'action', label: 'Action Button', hint: 'Escalate: asks e-mail, sends it', group: 'Actions & data' },
+  // 'action' (the old email-sending "Escalate" button) is intentionally left out of the palette -
+  // it needed a backend (SMTP) to actually send anything, and this project no longer has one.
   { kind: 'weather', label: 'Weather', hint: 'Pick a state, see weather', group: 'Actions & data' },
   { kind: 'ocr', label: 'OCR', hint: 'Drag over an image, extract text', group: 'AI' },
   { kind: 'ids', label: 'Get IDs', hint: 'Pulls case/order/ticket IDs off this page', group: 'AI' },

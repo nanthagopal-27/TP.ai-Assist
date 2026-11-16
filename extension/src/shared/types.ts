@@ -29,13 +29,6 @@ export interface HistoryItem {
   latency_ms: number | null;
 }
 
-export interface HealthInfo {
-  status: string;
-  model: string;
-  mock: boolean;
-  api_key_configured: boolean;
-}
-
 /** Result of GET_CONTEXT: what the side panel knows about the active tab. */
 export interface ActiveTabContext {
   tabId: number | null;
@@ -196,7 +189,7 @@ export type ExtMessage =
   | { type: 'ORBIT_CAPTURE_TAB' }
   | { type: 'ORBIT_OCR'; image: string; engine: 'local' | 'ai' }
   | { type: 'ORBIT_OFFSCREEN_OCR'; image: string }
-  | { type: 'ORBIT_API_CALL'; path: string; method?: 'GET' | 'POST' | 'DELETE'; body?: unknown }
+  | { type: 'ORBIT_COPILOT_HEALTH' }
   // broadcasts to the side panel
   | { type: 'ORBIT_SELECTION_UPDATE'; tabId: number; text: string }
   | { type: 'ORBIT_TAB_CHANGED'; tabId: number }
