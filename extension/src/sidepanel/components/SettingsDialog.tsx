@@ -47,7 +47,8 @@ export default function SettingsDialog({ open, onClose, onSaved }: Props) {
       <DialogTitle>{SHORT_NAME} settings</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          The extension talks to your local FastAPI server over plain HTTP - no certificate required.
+          The extension talks to this backend for every AI action. Leave as the default unless
+          you're running your own instance.
         </Typography>
         <TextField fullWidth size="small" label="Backend URL" value={url} onChange={(e) => setUrl(e.target.value)} />
         {test && <Alert severity={test.ok ? 'success' : 'error'} sx={{ mt: 2 }}>{test.msg}</Alert>}

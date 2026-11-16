@@ -133,7 +133,10 @@ export function initSelection(): void {
   document.addEventListener('selectionchange', schedule);
   document.addEventListener('mouseup', schedule);
   document.addEventListener('keyup', (e) => {
-    if (e.shiftKey || e.key === 'a' || e.key.startsWith('Arrow')) schedule();
+    // e.key can be missing on synthetic/partial KeyboardEvents some pages dispatch themselves
+    // (seen on a Microsoft login/SAML redirect page) - startsWith on undefined crashed the
+    // whole content script there.
+    if (e.shiftKey || e.key === 'a' || e.key?.startsWith('Arrow')) schedule();
   });
   window.addEventListener('scroll', hideQuickButton, { passive: true });
 }

@@ -1,12 +1,11 @@
 /** SQLite storage for Orbit PixieBrix (request logging / history).
- * Uses Node's built-in node:sqlite (no native module / C++ build toolchain required) - the
- * database file is created automatically at backend-node/data/orbit.db on first start. */
+ * Uses Node's built-in node:sqlite (no native module / C++ build toolchain required).
+ * In-memory only (":memory:") - nothing is written to disk, so there's no database file to
+ * manage or hand off with the project. History still works normally while the process is
+ * running; it just resets on every restart. */
 import { DatabaseSync } from "node:sqlite";
-import * as fs from "node:fs";
-import * as path from "node:path";
 
-const DB_DIR = path.join(__dirname, "..", "data");
-const DB_PATH = path.join(DB_DIR, "orbit.db");
+const DB_PATH = ":memory:";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS request_logs (
@@ -55,9 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_email_outbox_created ON email_outbox(created_at D
 let db: DatabaseSync | null = null;
 
 export function initDb(): void {
-  fs.mkdirSync(DB_DIR, { recursive: true });
   db = new DatabaseSync(DB_PATH);
-  db.exec("PRAGMA journal_mode = WAL");
   db.exec(SCHEMA);
 }
 
