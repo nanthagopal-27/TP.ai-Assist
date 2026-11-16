@@ -40,6 +40,11 @@ const mounted = new Map<string, Mounted>();
 let defs: WidgetDef[] = [];
 let currentKey = '';
 let autofill = true;
+/** Default layout for widgets dropped via native drag-and-drop (which never goes through the
+ *  properties editor, so there's no per-widget choice there) - 'row' tries to join a row with
+ *  whatever's already at the drop spot, 'column' always stacks. Toggled in the Widgets tab. */
+let dragLayout: 'row' | 'column' = 'row';
+export const getDragLayout = (): 'row' | 'column' => dragLayout;
 let cancelPicker: (() => void) | null = null;
 
 const pageKey = () => `${location.origin}${location.pathname.replace(/\/+$/, '') || '/'}`;
@@ -245,7 +250,12 @@ function mount(def: WidgetDef): boolean {
 
   if (def.mode === 'inline' && anchor && def.anchor) {
     freezeShrinkableAncestors(anchor);
-    insertWidgetHost(anchor, def.anchor.position, host);
+    if (def.props?.layout === 'column') {
+      // User explicitly chose "stacked" - never join a row, no matter what's next door.
+      anchor.insertAdjacentElement(def.anchor.position, host);
+    } else {
+      insertWidgetHost(anchor, def.anchor.position, host);
+    }
     ensureScrollable();
   } else {
     document.documentElement.appendChild(host);
@@ -356,8 +366,15 @@ function ensureScrollable(): void {
 }
 
 function unmount(id: string): void {
+  const parent = mounted.get(id)?.host.parentElement;
   mounted.get(id)?.host.remove();
   mounted.delete(id);
+  // If that host's parent was a row wrapper WE created for grouping (see insertWidgetHost),
+  // removing it can leave an empty - or pointlessly single-item - wrapper still taking up space.
+  if (parent?.hasAttribute(ROW_ATTR)) {
+    if (parent.children.length === 0) parent.remove();
+    else if (parent.children.length === 1) parent.replaceWith(parent.children[0]);
+  }
 }
 
 const ensureMounted = () => {
@@ -538,7 +555,7 @@ export function initNativeDragAcceptor(): void {
     overlay = null;
     if (!kind || !result) return;
     const f = finalizeDraft(defaultsFor(kind));
-    finalizeNewWidget({ kind: f.kind, mode: f.mode, props: f.props, label: f.label, url: f.url, newTab: f.newTab }, result);
+    finalizeNewWidget({ kind: f.kind, mode: f.mode, props: { ...f.props, layout: dragLayout }, label: f.label, url: f.url, newTab: f.newTab }, result);
   }, true);
 
   // `drop` only fires when the drag ends *on* a valid target. Esc, dropping outside the window,
@@ -826,10 +843,13 @@ export async function initWidgets(): Promise<void> {
   document.querySelectorAll(`[${HOST_ATTR}]`).forEach((el) => el.remove());
 
   try {
-    const r = await chrome.storage.local.get(STORAGE_KEYS.autofill);
+    const r = await chrome.storage.local.get([STORAGE_KEYS.autofill, STORAGE_KEYS.dragLayout]);
     autofill = r[STORAGE_KEYS.autofill] !== false;
+    dragLayout = r[STORAGE_KEYS.dragLayout] === 'column' ? 'column' : 'row';
     chrome.storage.onChanged.addListener((chg, area) => {
-      if (area === 'local' && chg[STORAGE_KEYS.autofill]) autofill = chg[STORAGE_KEYS.autofill].newValue !== false;
+      if (area !== 'local') return;
+      if (chg[STORAGE_KEYS.autofill]) autofill = chg[STORAGE_KEYS.autofill].newValue !== false;
+      if (chg[STORAGE_KEYS.dragLayout]) dragLayout = chg[STORAGE_KEYS.dragLayout].newValue === 'column' ? 'column' : 'row';
     });
   } catch {
     /* storage unavailable */

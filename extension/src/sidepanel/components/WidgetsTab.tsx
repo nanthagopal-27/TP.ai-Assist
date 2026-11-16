@@ -43,6 +43,7 @@ export default function WidgetsTab({ disabled, editId, onEditHandled }: Props) {
   const [items, setItems] = useState<WidgetInfo[]>([]);
   const [autofill, setAutofill] = useState(true);
   const [toolbar, setToolbar] = useState(true);
+  const [dragLayout, setDragLayout] = useState<'row' | 'column'>('row');
   const editorRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async (): Promise<WidgetInfo[]> => {
@@ -64,11 +65,12 @@ export default function WidgetsTab({ disabled, editId, onEditHandled }: Props) {
 
   useEffect(() => {
     void refresh();
-    chrome.storage.local.get([STORAGE_KEYS.autofill, STORAGE_KEYS.toolbar]).then((s) => {
+    chrome.storage.local.get([STORAGE_KEYS.autofill, STORAGE_KEYS.toolbar, STORAGE_KEYS.dragLayout]).then((s) => {
       setAutofill(s[STORAGE_KEYS.autofill] !== false);
       // first time the Widgets tab is opened: show the on-page toolbar (user can hide it with its x or the switch below)
       if (s[STORAGE_KEYS.toolbar] === undefined) void chrome.storage.local.set({ [STORAGE_KEYS.toolbar]: true });
       setToolbar(s[STORAGE_KEYS.toolbar] !== false);
+      setDragLayout(s[STORAGE_KEYS.dragLayout] === 'column' ? 'column' : 'row');
     });
     const onStore = (chg: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area === 'local' && chg[STORAGE_KEYS.toolbar]) setToolbar(chg[STORAGE_KEYS.toolbar].newValue === true);
@@ -166,6 +168,11 @@ export default function WidgetsTab({ disabled, editId, onEditHandled }: Props) {
   const toggleAutofill = (v: boolean) => {
     setAutofill(v);
     void chrome.storage.local.set({ [STORAGE_KEYS.autofill]: v });
+  };
+
+  const setDefaultLayout = (v: 'row' | 'column') => {
+    setDragLayout(v);
+    void chrome.storage.local.set({ [STORAGE_KEYS.dragLayout]: v });
   };
 
   const groups: ('Inputs' | 'Actions & data' | 'AI')[] = ['Inputs', 'Actions & data', 'AI'];
@@ -297,25 +304,39 @@ export default function WidgetsTab({ disabled, editId, onEditHandled }: Props) {
                 )}
               </Box>
             ) : (
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Select
-                  size="small" value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value as WidgetMode })}
-                  sx={{ width: 108, bgcolor: 'background.paper' }}
-                >
-                  <MenuItem value="inline">Inline</MenuItem>
-                  <MenuItem value="float">Float</MenuItem>
-                </Select>
-                <Button
-                  variant="contained" fullWidth startIcon={<AddLocationAltOutlinedIcon />}
-                  disabled={disabled || placing || issues.length > 0} onClick={place}
-                >
-                  Place on page
-                </Button>
+              <Box sx={{ display: 'grid', gap: 1 }}>
+                {draft.mode === 'inline' && (
+                  <Select
+                    size="small"
+                    value={draft.props.layout === 'column' ? 'column' : 'row'}
+                    onChange={(e) => setDraft({ ...draft, props: { ...draft.props, layout: e.target.value as 'row' | 'column' } })}
+                    sx={{ bgcolor: 'background.paper' }}
+                  >
+                    <MenuItem value="row">Side-by-side with nearby widgets</MenuItem>
+                    <MenuItem value="column">Always stack (own line)</MenuItem>
+                  </Select>
+                )}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Select
+                    size="small" value={draft.mode} onChange={(e) => setDraft({ ...draft, mode: e.target.value as WidgetMode })}
+                    sx={{ width: 108, bgcolor: 'background.paper' }}
+                  >
+                    <MenuItem value="inline">Inline</MenuItem>
+                    <MenuItem value="float">Float</MenuItem>
+                  </Select>
+                  <Button
+                    variant="contained" fullWidth startIcon={<AddLocationAltOutlinedIcon />}
+                    disabled={disabled || placing || issues.length > 0} onClick={place}
+                  >
+                    Place on page
+                  </Button>
+                </Box>
               </Box>
             )}
             {!editing && (
               <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }}>
                 Inline sits inside the page and scrolls with it. Float stays fixed on screen and can be dragged.
+                {draft.mode === 'inline' && ' "Side-by-side" only takes effect when dropped right next to another widget.'}
               </Typography>
             )}
           </CardContent>
@@ -325,10 +346,17 @@ export default function WidgetsTab({ disabled, editId, onEditHandled }: Props) {
       {/* ------------------------------------------------ on this page */}
       <Card>
         <CardContent sx={{ display: 'grid', gap: 0.5, pb: '12px !important' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="subtitle2">On this page ({items.length})</Typography>
-            <Button size="small" color="inherit" disabled={!items.length} onClick={() => remove()}>Remove all</Button>
-          </Box>
+          <Typography variant="subtitle2">On this page ({items.length})</Typography>
+          {items.length > 0 && (
+            <Button
+              size="small" variant="outlined" color="inherit" fullWidth
+              startIcon={<DeleteOutlineIcon fontSize="small" />}
+              onClick={() => remove()}
+              sx={{ borderColor: 'grey.400', justifyContent: 'center' }}
+            >
+              Remove all ({items.length})
+            </Button>
+          )}
           {items.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
               Nothing placed yet. Widgets are saved per page and come back after a reload. Hover a widget on the page to Move, Edit or Remove it.
@@ -366,6 +394,15 @@ export default function WidgetsTab({ disabled, editId, onEditHandled }: Props) {
           <FormControlLabel
             control={<Checkbox size="small" checked={autofill} onChange={(e) => toggleAutofill(e.target.checked)} />}
             label={<Typography variant="body2">Auto-fill AI Input from selected text</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small" checked={dragLayout === 'row'}
+                onChange={(e) => setDefaultLayout(e.target.checked ? 'row' : 'column')}
+              />
+            }
+            label={<Typography variant="body2">Drag-dropped widgets group side-by-side by default</Typography>}
           />
         </CardContent>
       </Card>

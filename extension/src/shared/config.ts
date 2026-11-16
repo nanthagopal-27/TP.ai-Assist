@@ -30,6 +30,7 @@ export const STORAGE_KEYS = {
   autofill: 'orbit.autofill',
   widgets: 'orbit.widgets',
   toolbar: 'orbit.toolbar',
+  dragLayout: 'orbit.dragLayout',
 } as const;
 
 export const LANGUAGES = [

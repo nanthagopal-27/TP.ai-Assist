@@ -1,6 +1,4 @@
 node_modules/
 dist/
 extension/dist/
-backend/.env
-backend/data/
 .DS_Store

@@ -55,10 +55,10 @@ export default function PropertiesEditor({ draft, onChange }: Props) {
         <TextField
           select size="small" label="OCR engine" value={p.ocrEngine ?? 'ai'}
           onChange={(e) => set({ ocrEngine: e.target.value as 'local' | 'ai' })}
-          helperText={p.ocrEngine === 'ai' ? 'Copilot Studio reads the picture through your backend.' : 'Runs inside Chrome - no internet or key needed. English text.'}
+          helperText={p.ocrEngine === 'ai' ? 'Copilot Studio reads the picture directly.' : 'Runs inside Chrome - no internet or key needed. English text.'}
         >
           <MenuItem value="local">Offline (built in)</MenuItem>
-          <MenuItem value="ai">AI vision (Copilot Studio via backend)</MenuItem>
+          <MenuItem value="ai">AI vision (Copilot Studio)</MenuItem>
         </TextField>
         <Typography variant="body2" color="text.secondary">
           On the page: press <b>Select area</b>, drag a box over any image or text, then press <b>Extract text</b>.

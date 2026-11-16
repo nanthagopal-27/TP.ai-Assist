@@ -14,7 +14,7 @@ import {
 } from '../shared/draft';
 import { attachStyles, h, HOST_ATTR } from './dom';
 import { WIDGET_CSS, TOOLBAR_CSS } from './styles';
-import { beginDragPlacement, getWidgetDef, hooks, NEEDS_SETUP_FIRST, updateWidget } from './widgets';
+import { beginDragPlacement, getDragLayout, getWidgetDef, hooks, NEEDS_SETUP_FIRST, updateWidget } from './widgets';
 
 const GLYPH: Record<string, string> = {
   text: 'Tт', textarea: '¶', dropdown: '▾', checkbox: '☑', radio: '◉', form: '▤', button: '▭', weather: '☀', input: '✦', output: '▢', action: '✉', ocr: '▣', ids: '#',
@@ -106,7 +106,7 @@ export function initToolbar(): void {
       }
       const f = finalizeDraft(source);
       const r = beginDragPlacement(
-        { kind: f.kind, mode: f.mode, props: f.props, label: f.label, url: f.url, newTab: f.newTab },
+        { kind: f.kind, mode: f.mode, props: { ...f.props, layout: f.props.layout ?? getDragLayout() }, label: f.label, url: f.url, newTab: f.newTab },
         b,
         e,
         m.label,

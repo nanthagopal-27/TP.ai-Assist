@@ -1,9 +1,55 @@
 // Types shared by the content script, service worker and side panel.
 
-// The AI request/response contract is the same on the backend - defined once in the project's
-// root shared/ai-types.ts (not extension-specific) so the two sides can't drift apart.
-export type { ActionId, Scope, PageInfo, AIRequestPayload, KeyValue, IdRecord, AIResult, AIResponse } from "../../../shared/ai-types";
-import type { ActionId, AIRequestPayload } from "../../../shared/ai-types";
+// The AI request/response contract (used by background/copilot.ts and the AI widgets).
+export type ActionId = 'summarize' | 'translate' | 'explain' | 'extract' | 'extract_ids' | 'person' | 'company' | 'ask';
+export type Scope = 'auto' | 'selection' | 'page';
+
+export interface PageInfo {
+  url: string;
+  title: string;
+  description: string;
+  text: string;
+}
+
+export interface AIRequestPayload {
+  action: ActionId;
+  prompt?: string;
+  scope: Scope;
+  selected_text?: string;
+  page?: PageInfo;
+  target_language?: string;
+}
+
+export interface KeyValue {
+  label: string;
+  value: string;
+}
+
+export interface IdRecord {
+  id: string;
+  kind: string;
+  severity: string;
+  date: string;
+  status: string;
+  summary: string;
+}
+
+export interface AIResult {
+  title: string;
+  content: string;
+  bullets: string[];
+  fields: KeyValue[];
+  ids: IdRecord[];
+}
+
+export interface AIResponse {
+  request_id: string;
+  action: ActionId;
+  model: string;
+  latency_ms: number;
+  mock: boolean;
+  result: AIResult;
+}
 
 export interface PageContext {
   url: string;
@@ -93,6 +139,10 @@ export interface WidgetProps extends FieldProps {
   subject?: string;
   body?: string;
   askNote?: boolean;
+  /** Inline placement only: whether to try joining a horizontal row with whatever widget is
+   *  already right next to the drop spot ('row', the default when unset) or always stack as a
+   *  normal vertical block regardless ('column'). See insertWidgetHost in content/widgets.ts. */
+  layout?: 'row' | 'column';
 }
 
 export interface WidgetDef {

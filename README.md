@@ -1,277 +1,166 @@
-# Orbit PixieBrix (POC)
+# TP.ai Assist
 
-An internal, free-stack alternative to PixieBrix. A Chrome side panel + in-page widgets that sit on top of
-third-party enterprise websites and give operations employees real-time AI help: summarize, translate,
-explain, extract key details, person / company info and free-form Q&A - powered by **Gemini 2.5 Flash**.
+A Chrome side panel + in-page widgets that sit on top of third-party enterprise websites and give
+operations employees real-time AI help: summarize, translate, explain, extract key details,
+person / company info, free-form Q&A, and AI-powered OCR - all backed directly by a **Microsoft
+Copilot Studio** agent.
 
-* **Extension:** React + TypeScript + Vite + Material UI, Manifest V3 (white / grey theme, "Orbit" branding)
-* **Backend:** Node.js + TypeScript + Express + SQLite (local, `http://localhost:8000`)
-* **LLM:** Microsoft Copilot Studio agent via the Bot Framework Direct Line REST API
-* **No SSL certificate, no admin rights, no Docker.** Everything is plain `http://localhost`. See [Why no certificate is needed](#why-no-certificate-is-needed).
+* **Extension only - no backend, no server to run, no database.** Everything happens inside the
+  Chrome extension itself.
+* **Stack:** React + TypeScript + Vite + Material UI, Manifest V3.
+* **LLM:** Microsoft Copilot Studio agent, called directly from the extension over the Bot
+  Framework Direct Line REST API.
 
 ---
 
 ## 1. Folder structure
 
 ```
-orbit-webassist/
+pixiebrix-update-v3/
 ├── README.md
 ├── .gitignore
-├── backend/                        # Node.js + TypeScript + Express + SQLite
-│   ├── src/
-│   │   ├── index.ts                # Express app: POST /api/ai, /api/weather, /api/submissions,
-│   │   │                            #   /api/send-email, /api/emails, /api/ocr, /api/history
-│   │   ├── actions.ts               # AI Action Router: the 8 action specs, prompt building, response parsing
-│   │   ├── emailer.ts               # SMTP sender (Gmail / Office 365 / company relay) for the Escalate button
-│   │   ├── weather.ts               # Weather (Open-Meteo, no key) + built-in Indian states table
-│   │   ├── database.ts              # SQLite (node:sqlite, built into Node - no native build step): request
-│   │   │                            #   log, form submissions, e-mail outbox
-│   │   ├── config.ts, http.ts
-│   │   └── copilot/                 # Bot Framework Direct Line integration (token/session/client/ask/
-│   │                                #   translate/ocr/responseParser)
-│   ├── package.json, tsconfig.json
-│   └── .env.example                 # copy to .env and set COPILOT_TOKEN_ENDPOINT or DIRECT_LINE_SECRET
-└── extension/                      # Chrome extension (React + Vite + MUI, MV3)
-    ├── package.json
-    ├── tsconfig.json
-    ├── vite.config.ts              # build 1: side panel + service worker
-    ├── vite.content.config.ts      # build 2: content script as a single file
-    ├── scripts/                    # clean.mjs, dev.mjs, copy-ocr.mjs (copies the offline OCR engine into dist/ocr)
-    ├── offscreen.html              # hidden page that runs the OCR engine (Tesseract, WebAssembly)
-    ├── sidepanel.html              # side panel entry HTML
-    ├── public/
-    │   ├── manifest.json           # Manifest V3 (copied to dist/)
-    │   └── icons/                  # 16/32/48/128 px
+└── extension/                       # The entire project - a Chrome extension (MV3)
+    ├── package.json, tsconfig.json
+    ├── vite.config.ts               # build 1: side panel + service worker
+    ├── vite.content.config.ts       # build 2: content script as a single file
+    ├── copilot.config.json          # Copilot Studio Direct Line settings (see section 2)
+    ├── brand.config.json            # product name / short name / theme color
+    ├── scripts/                     # clean.mjs, dev.mjs, gen-brand.mjs, copy-ocr.mjs
+    ├── offscreen.html               # hidden page that runs the offline OCR engine (Tesseract, WASM)
+    ├── public/                      # manifest.json, icons, logo - copied as-is into dist/
+    ├── dist/                        # build output - THIS is what you load into Chrome
     └── src/
-        ├── background.ts           # Service worker: message routing, API calls, context menu
-        ├── content.ts              # Content script entry (message handler)
-        ├── content/                # In-page engine (built as one self-contained script)
-        │   ├── selection.ts        # Highlight capture + floating "Orbit" button
-        │   ├── picker.ts           # "Click anywhere on the page to place it" overlay
-        │   ├── widgets.ts          # Widget engine: place / move / edit / remove, save + re-attach per page
-        │   ├── builder.ts          # On-page toolbar (component chips) + properties card on the website
-        │   ├── ui/                 # One file per component: fields.ts (text, textarea, dropdown, checkbox, radio),
-        │   │                       #   form.ts, weather.ts, button.ts, ai.ts (AI input/output)
-        │   ├── replace.ts          # Replace selected text on the page (translate in place) + undo
-        │   └── page.ts, render.ts, styles.ts, dom.ts, messaging.ts
-        ├── shared/
-        │   ├── types.ts            # Message + payload types shared by all parts
-        │   ├── config.ts           # Defaults (backend URL, languages, storage keys)
-        │   ├── draft.ts            # Component list, defaults + validation (shared by side panel and on-page toolbar)
-        │   ├── weather.ts          # Weather fetched by the service worker straight from Open-Meteo
-        │   └── utils.ts            # URL validation for link buttons
-        └── sidepanel/
-            ├── main.tsx            # React entry (MUI ThemeProvider)
-            ├── App.tsx             # Side panel shell, state, action runner
-            ├── theme.ts            # White / grey MUI theme
-            ├── hooks/usePageContext.ts
-            ├── lib/bridge.ts       # Promise wrapper around chrome.runtime messaging
-            ├── lib/workflows.tsx   # Action definitions + URL-matched workflows (dynamic buttons)
-            ├── lib/components.tsx  # Widget palette (icons); logic lives in shared/draft.ts (used by the toolbar too)
-            └── components/         # Header, Logo, ContextCard, ActionGrid, ResultCard, HistoryTab, SettingsDialog,
-                                    #   WidgetsTab (palette + placement), PropertiesEditor, FormFieldsEditor
+        ├── background.ts            # service worker: message router + talks to Copilot Studio directly
+        ├── background/
+        │   └── copilot.ts           # Direct Line client (token/session/ask/translate/OCR) + the 8 action prompts
+        ├── content.ts                # content script entry
+        ├── content/                 # widgets.ts, picker.ts, builder.ts, ui/* (widget types), selection.ts...
+        ├── shared/                  # types.ts, config.ts, draft.ts, utils.ts, weather.ts
+        └── sidepanel/               # the React UI (App.tsx, components/, lib/)
 ```
 
-## 2. How it works
+## 2. One-time setup
 
-```
- ┌────────────────────┐  selection / page text   ┌──────────────────────┐   fetch (HTTP)   ┌────────────────────────┐
- │  content.ts        │ ───────────────────────▶ │  background.ts        │ ───────────────▶ │ FastAPI  :8000         │
- │  (any web page)    │ ◀─ ORBIT_COLLECT_PAGE ─── │  (service worker)     │ ◀─────────────── │  POST /api/ai          │
- │  • selection watch │                          │  • message router     │   JSON result    │  └ AI Action Router    │
- │  • floating button │                          │  • backend proxy      │                  │     summarize/translate│
- └────────────────────┘                          │  • context menu       │                  │     explain/extract/   │
-                                                 └──────────▲────────────┘                  │     person/company/ask │
-                                                            │ runtime messages              │  └ Gemini 2.5 Flash    │
-                                                 ┌──────────┴────────────┐                  │  └ SQLite request log  │
-                                                 │ Side panel (React+MUI)│                  └────────────────────────┘
-                                                 │ dynamic action buttons│
-                                                 └───────────────────────┘
+```bash
+cd extension
+npm install
+npm run build
 ```
 
-1. `content.ts` watches your mouse/keyboard selection (also inside inputs/textareas) and shows a small **Orbit** button next to it. It also reads the page's visible text on request.
-2. `background.ts` (service worker) routes every message and is the **only** component that calls the backend.
-3. The side panel renders **action buttons chosen by a workflow** (matched on the page URL), e.g. CRM/ticketing sites put *Person* and *Company* first.
-4. `POST /api/ai` receives `{action, prompt, scope, selected_text, page, target_language}`; the **AI Action Router** in `main.py` picks the action spec, builds a safe prompt, calls Gemini with a JSON schema, logs to SQLite and returns:
+This produces `extension/dist`. In Chrome: go to `chrome://extensions`, turn on **Developer
+mode**, click **Load unpacked**, and select the `extension/dist` folder. That's it - no server to
+start, no `.env` file, no database to manage.
+
+### Configuring Copilot Studio
+
+`extension/copilot.config.json` holds the Direct Line settings:
 
 ```json
 {
-  "request_id": "a1b2c3d4e5f6",
-  "action": "summarize",
-  "model": "gemini-2.5-flash",
-  "latency_ms": 1840,
-  "mock": false,
-  "result": {
-    "title": "Refund policy overview",
-    "content": "Markdown answer…",
-    "bullets": ["key point", "key point"],
-    "fields": [{ "label": "Order ID", "value": "A-10293" }]
-  }
+  "tokenEndpoint": "https://....environment.api.powerplatform.com/powervirtualagents/botsbyschema/.../directline/token?api-version=2022-03-01-preview",
+  "directLineBaseUrl": "https://europe.directline.botframework.com",
+  "responseTimeoutMs": 30000,
+  "pollIntervalMs": 500,
+  "ocrCapabilityConfigured": true,
+  "mockMode": false,
+  "maxContextChars": 30000
 }
 ```
 
-## 3. Prerequisites
+- **`tokenEndpoint`** - Copilot Studio's own *public, no-secret* token-minting endpoint (Settings →
+  Channels → "Mobile app" in Copilot Studio, or ask whoever administers the agent). This is safe to
+  bake into the extension's code because it never carries a password/secret, the same way
+  Microsoft's own embeddable Web Chat widget calls it directly from a browser.
+- **Never put a `DIRECT_LINE_SECRET` here instead.** That *is* a real secret - anyone who unpacks
+  this extension can read `copilot.config.json` (or the built `background.js`) directly, so a
+  secret placed there is effectively public. Use the token endpoint, not the secret, for this
+  architecture to be safe.
+- Set `mockMode: true` to test the whole extension with canned answers, without a real Copilot
+  connection.
 
-| Tool | Version | Check |
-|---|---|---|
-| Node.js | 18+ (20/22 recommended) | `node -v` |
-| Google Chrome (or Edge) | 116+ (Side Panel API) | `chrome://version` |
-| Copilot Studio agent (Direct Line channel enabled) | - | see `backend/.env.example` |
+After changing this file, run `npm run build` again and reload the extension.
 
-## 4. Backend setup (Node.js + Express)
+## 3. How it works
 
-**Windows (PowerShell) / macOS / Linux - same commands everywhere**
-```bash
-cd orbit-webassist/backend
-npm install
-cp .env.example .env          # Windows: copy .env.example .env
-# edit .env: set COPILOT_TOKEN_ENDPOINT or DIRECT_LINE_SECRET (see the comments in the file)
-npm run dev                   # auto-restarts on file changes
+```
+ ┌─────────────────────┐                          ┌────────────────────────┐
+ │  Web page            │ ───────────────────────▶ │  background.ts         │
+ │  • content.ts        │                           │  (service worker)      │
+ │  • widgets, picker,  │ ◀─────────────────────── │  • message router       │
+ │    toolbar           │                          │  • background/copilot.ts│──▶ Copilot Studio
+ └─────────────────────┘                          └────────────────────────┘      (Direct Line REST)
+            ▲                                                  ▲
+            │                                                  │
+            └──────────────── side panel (React) ──────────────┘
 ```
 
-Verify: open http://localhost:8000/api/health → `{"status":"ok","model":"copilot-studio",...,"api_key_configured":true}`
+1. The content script (`content.ts` + `content/*`) reads the page, places/manages in-page widgets,
+   and handles drag-and-drop from the side panel's palette.
+2. The side panel (`sidepanel/*`) is the React UI - choose an action, configure a widget, see
+   what's placed on the current page.
+3. `background.ts` (the service worker) routes messages between the two and is the only place
+   that talks to Copilot Studio - see `background/copilot.ts`, which implements the full
+   token → conversation → message → poll Direct Line lifecycle plus the 8 action prompts
+   (summarize / translate / explain / extract / extract_ids / person / company / ask) and OCR.
 
-> **No Copilot agent configured yet?** Set `MOCK_MODE=true` in `.env`. The whole extension works end-to-end with canned answers so you can test the UI and message flow first.
+No part of this talks to any server you run - Copilot Studio is the only external service
+involved, and it's called straight from the browser.
 
-The SQLite file is created automatically at `backend/data/orbit.db` (via Node's built-in `node:sqlite` - no native module or C++ build toolchain needed).
+## 4. Features
 
-For a production-style run: `npm run build && npm start` (compiles to `backend/dist` and runs plain `node`, no `tsx` needed at runtime).
-
-## 5. Build the extension (Vite)
-
-```bash
-cd orbit-webassist/extension
-npm install
-npm run build        # outputs the loadable extension to extension/dist (two Vite passes)
-```
-
-For development use `npm run dev` (rebuilds `dist/` on every save; click the reload icon on `chrome://extensions` after a rebuild).
-
-## 6. Load the unpacked extension in Chrome
-
-1. Open `chrome://extensions` (Edge: `edge://extensions`).
-2. Turn on **Developer mode** (top-right).
-3. Click **Load unpacked** and select the **`extension/dist`** folder.
-4. Pin the **Orbit PixieBrix** icon from the puzzle-piece menu.
-
-## 7. Test the real-time workflow
-
-1. Make sure the backend is running (section 4). The side panel header chip should say **Gemini 2.5 Flash** (or *Mock mode*) with a grey dot.
-2. Open any normal website, e.g. a Wikipedia article or a news page. *(Pages that were already open before you installed the extension are handled automatically.)*
-3. Click the **Orbit** toolbar icon → the side panel opens.
-4. **Page context:** the *Current page* card shows the title and how many characters were read.
-5. **Selection capture:** highlight a paragraph with your mouse. It appears instantly in the card, and a small **Orbit** button pops up next to the selection (click it to open the panel). Right-click → **Orbit: Assist with "…"** works too.
-6. Click **Summarize Webpage**, **Explain Content**, **Translate Text** (pick the target language), **Extract Key Details**, **Person Information**, **Company Information**.
-7. **Ask AI:** type a question in the bottom box and press Enter (e.g. *"What is the refund window?"*).
-8. Use the **Auto / Selection / Full page** toggle to force which text is sent. *Auto* = selection if you have one, otherwise the page.
-9. The **History** tab shows what was logged in SQLite. Use ⚙ **Settings → Test connection** if the chip says *Backend offline*.
-
-You can also test the API directly:
-```bash
-curl -X POST http://localhost:8000/api/ai -H "Content-Type: application/json" -d '{"action":"translate","target_language":"French","selected_text":"Good morning, how can I help you?"}'
-```
-
-## 7b. In-page widgets (the PixieBrix-style part)
-
-The widget builder is available in **two places that do the same thing**:
-
-* **On the website itself** - a dark toolbar appears at the top of the page (like PixieBrix's Sidebar Widget Builder) with a chip per component. It appears when you open the **Widgets** tab, and you can hide it with its **×** or the *Show widget toolbar on websites* switch in the side panel.
-* **In the side panel** - the **Widgets** tab has the same palette and the same properties form.
-
-1. **Pick a component** (toolbar chip or palette tile).
-2. **Fill in its details** in the properties card that opens.
-3. Choose **Inline** (part of the page, scrolls with it) or **Float** (fixed on screen, drag by the header) and press **Place on page**.
-4. **Click anywhere on the page** (a highlight such as `afterend · p` shows where it will go) or press **Esc** to cancel. Place as many as you like.
-5. **Edit later:** hover a widget on the page and use **Move**, **Edit** or **×**. *Edit* opens the properties card right on the website; **Save changes** updates the widget live. The side panel's **On this page** list has Edit / Delete too.
-
-| Component | Details you fill in |
+| Widget | What it does |
 |---|---|
-| **Text Input** | Label, field name (auto-filled from the label), placeholder, default value, help text, required, validation: min length, max length, regex pattern |
-| **Text Area** | Same as Text Input |
-| **Dropdown** | Label, field name, **options (one per line - you add the data)**, default, required |
-| **Checkbox** | Label, field name, default checked, required |
-| **Radio Group** | Label, field name, options (one per line), default, required |
-| **Form** | Title, any number of fields (text, textarea, dropdown, checkbox, radio - add / reorder / delete), submit button label, success message, optional "Continue" link. On **Submit** the values are validated and stored in SQLite (see **History → Form submissions**); the widget then shows a success summary with **Submit another** |
-| **Link Button** | Label, any `http(s)` URL, *New tab* / *Same tab*. Clicking it navigates to the link. `javascript:` and similar are rejected |
-| **Action Button** (e.g. *Escalate*) | Button label + style, **ask for the e-mail address on click** (or a fixed recipient), optional note from the sender, **subject and body templates** with placeholders `{{email}} {{note}} {{page_title}} {{page_url}} {{selection}} {{date}} {{time}}`, message after sending. Click → dialog asks for the e-mail address → shows a preview → **Send e-mail**. The backend sends it over SMTP (see 7c). The last address typed is remembered |
-| **OCR** | Engine: *Offline* (built-in Tesseract, English, no internet) or *AI vision* (Gemini via the backend, any language). On the page: **Select area** → drag a box over any image / scanned text → the captured picture appears → **Extract text** → the text appears; **Copy** or **Use in AI Input** |
-| **Weather** | Dropdown of states (all Indian states / UTs built in, plus any extra places you type), default location, °C / °F. Shows current weather, humidity, wind and a 4-day forecast |
-| **AI Input / AI Output** | An input box with an action picker (Summarize, Translate, Explain, Extract, Person, Company, Ask AI), a **language picker with 85 languages** (Translate → "translate to"; Summarize / Explain / Extract → "answer in"; *Auto language* keeps the text's language) and an output box. With **Auto-fill input from selected text** ticked, highlighted text fills the box. Choosing *Translate* with **Replace on page** ticked replaces the text on the page itself, with **Undo** |
+| **AI Input / AI Output** | A text box with an action menu (Summarize, Translate, Explain, Extract, Person, Company, Ask AI) and a box elsewhere on the page that shows its answer. |
+| **Get IDs** | Pulls case/order/ticket/SOP-style identifiers off the current page, grouped and colour-coded by priority, with a hover card for details. |
+| **Text / Text area / Dropdown / Checkbox / Radio** | Plain form fields, placeable inline or floating. Can be dropped right next to each other to form a row - see "Layout" below. |
+| **Form** | Several fields + Submit. Validates and shows a success state; nothing is persisted anywhere (there's no backend to store it on). |
+| **Link Button** | Opens any http(s) link, in the same tab or a new one. |
+| **Weather** | Pick an Indian state (or type any place), see current + 4-day forecast. Fetched directly from Open-Meteo (free, no key). |
+| **OCR** | *Offline* (built-in Tesseract, runs in the browser, English only) or *AI vision* (Copilot Studio reads the image directly, any language your agent supports). |
 
-**Resize anything:** hover a widget and drag the little handle in its bottom-right corner - buttons, forms, cards and fields all resize freely. The size is saved; **double-click the handle** to go back to automatic size. Inline widgets can be moved with **Move**, floating ones are dragged by their header.
+### Layout: side-by-side vs stacked
 
-Widgets are saved per page address and re-attach after a reload or when a single-page app re-renders. Limit: 30 per page; top frame only (not inside iframes).
+When you place a widget right next to an existing one, it can either join a horizontal row with
+it or always stack on its own line:
 
-**Weather** uses the free Open-Meteo service (no API key). The extension's service worker calls it directly with Chrome's own network (so your company proxy / certificates just work); if that fails it falls back to the backend `GET /api/weather`. With `MOCK_MODE=true` the backend returns fake data so you can test offline.
+- **Click-to-place**: choose "Side-by-side with nearby widgets" or "Always stack" in the
+  properties panel before placing.
+- **Drag-and-drop**: set the default via the checkbox at the bottom of the Widgets tab
+  ("Drag-dropped widgets group side-by-side by default").
 
-**Form submissions** are stored in the local SQLite file `backend/data/` with the page URL and title. View or clear them in **History → Forms**. Sent / failed e-mails are listed in **History → E-mails**.
+Side-by-side grouping only takes effect when the drop spot is immediately next to another widget;
+otherwise it places normally regardless of the setting.
 
-## 7c. E-mail setup for the Escalate button
+## 5. Development
 
-The button calls `POST /api/send-email`; the backend sends the mail over SMTP. Put your mail server in `backend/.env` and restart uvicorn:
-
-```
-# Gmail (turn on 2-step verification, then create an "App password": Google Account -> Security)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURITY=starttls
-SMTP_USER=you@gmail.com
-SMTP_PASSWORD=your-16-char-app-password
-SMTP_FROM=Orbit <you@gmail.com>
+```bash
+cd extension
+npm run dev        # watches and rebuilds on change
+npm run typecheck  # tsc --noEmit
+npm run build      # production build -> dist/
 ```
 
-* **Office 365:** `SMTP_HOST=smtp.office365.com`, port 587, `starttls`, your mailbox and password (SMTP AUTH must be allowed by your admin).
-* **Company relay without login:** set `SMTP_HOST`, `SMTP_PORT=25`, `SMTP_SECURITY=none`, leave user/password empty.
-* **No SMTP yet?** With `MOCK_MODE=true` the button works in *demo mode*: nothing is sent, the dialog says so, and the mail is listed in History → E-mails.
-* Safety: addresses are validated, subject line breaks are removed, and there are limits (30 e-mails per hour, 5 per recipient per hour - `MAX_EMAILS_PER_HOUR`, `MAX_EMAILS_PER_RECIPIENT_HOUR`).
+After `npm run dev` picks up a change, reload the extension at `chrome://extensions` (the content
+script and service worker need an explicit reload; a page refresh alone only reloads the content
+script, not the side panel or background worker).
 
-## 7d. How OCR works
+## 6. Troubleshooting
 
-* **Offline engine:** `npm run build` copies Tesseract (worker, WebAssembly core, English data, about 8 MB) from `node_modules` into `extension/dist/ocr`. The service worker runs it in a hidden *offscreen document*, so web pages never see your images and no internet is needed. First use takes a second or two to start.
-* **Other languages:** use the *AI vision* engine (needs `GEMINI_API_KEY`), or add more Tesseract language files (`npm i @tesseract.js-data/hin`, copy its `.traineddata.gz` into `dist/ocr/lang` via `scripts/copy-ocr.mjs`, and change `'eng'` to `'eng+hin'` in `src/offscreen.ts`).
-* Capture uses `chrome.tabs.captureVisibleTab`, so only the **visible** part of the page can be selected - scroll the picture into view first.
-* Tip for accuracy: select tightly around the text; the tool enlarges small selections automatically.
-
-## 8. Extending it (the PixieBrix-style part)
-
-* **New action:** add an entry to `ACTIONS` in `backend/main.py` (id, label, instruction) and add the id to `ActionId` there, in `extension/src/shared/types.ts`, and in `ACTIONS` in `extension/src/sidepanel/lib/workflows.tsx`.
-* **New workflow / site-specific button set:** add an item to `WORKFLOWS` in `workflows.tsx` with a URL `match` regex and the ordered list of action ids. Users can also switch workflow from the *Workflow* dropdown above the buttons.
-* **Limit where the extension runs:** in `public/manifest.json` replace `http://*/*`, `https://*/*` in both `content_scripts.matches` and `host_permissions` with your enterprise domains (e.g. `https://*.mycrm.com/*`). Keep the `localhost:8000` entries.
-* **Different model:** change `GEMINI_MODEL` in `.env`.
-
-## 9. Why no certificate is needed
-
-* The backend listens on **plain HTTP at `localhost`**. Browsers treat `localhost` as a secure context, and the manifest grants `http://localhost:8000/*` in `host_permissions`.
-* All backend calls are made by the **service worker**, not by the web page, so HTTPS sites (your CRM) never hit a mixed-content block.
-* **CORS** is handled twice: the extension's host permission lets the service worker call the backend directly, and the Express backend also allows `chrome-extension://…` and `localhost` origins.
-* The only outbound HTTPS is backend → Copilot Studio (Direct Line), which uses the normal public certificates already trusted by your OS. Nothing to install or trust.
-
-## 10. Troubleshooting
-
-| Symptom | Fix |
+| Symptom | Likely cause |
 |---|---|
-| Chip says **Backend offline** | Start the backend: `cd backend && npm run dev`; check http://localhost:8000/api/health; ⚙ Settings → Test connection. |
-| `Copilot Studio is not configured` | Create `backend/.env` (copy `.env.example`), set `COPILOT_TOKEN_ENDPOINT` or `DIRECT_LINE_SECRET`, and restart the backend. |
-| `Direct Line rejected the token` | Re-check the token endpoint / Direct Line secret in Copilot Studio → Settings → Channels. |
-| `Copilot Studio rate limit reached` (429) | Wait a few seconds and retry. |
-| "Orbit can't read this page" | `chrome://`, the Web Store and some PDFs are blocked by Chrome. Use a normal website. |
-| Widgets tab buttons are grey | The active tab is a browser page (chrome://, Web Store). Switch to a normal website tab. |
-| Widget disappeared after reload | It is saved per page address. If the site changed that part of the page, it shows "waiting for element…" in *On this page* - remove and place it again. |
-| Weather says *could not load* | Chrome (and the backend as fallback) must reach `api.open-meteo.com` / `geocoding-api.open-meteo.com`. Open https://api.open-meteo.com in a tab to test; behind a firewall ask IT to allow it, or use `MOCK_MODE=true` for demo data. |
-| Toolbar not visible on a website | Open the side panel → Widgets and tick *Show widget toolbar on websites*, then refresh the page. Not available on chrome:// pages. |
-| OCR says *Either the '<all_urls>' or 'activeTab' permission is required* | You are running an old build - run `npm run build` and reload the extension. |
-| OCR says *OCR engine did not answer* / *OCR failed* | Run `npm install` then `npm run build` (this copies `dist/ocr`), reload the extension at `chrome://extensions`. |
-| Escalate shows *E-mail is not configured* | Add `SMTP_HOST` etc. to `backend/.env` (section 7c) and restart the backend, or set `MOCK_MODE=true` for demo mode. |
-| Escalate shows *mail server rejected the login* | Gmail needs an **App password**, not your normal password. |
-| Widget not placed inside an iframe | Widgets work in the main page only (not inside embedded iframes). |
-| Highlighted text doesn't appear | Reload the tab once (needed only if the tab was open *before* the extension was loaded and auto-inject failed), or use *Full page*. |
-| Backend call fails only on a corporate network | A proxy/firewall may block `generativelanguage.googleapis.com` - ask IT to allow it. |
-| Changes not visible after rebuild | `chrome://extensions` → reload the extension, then reopen the panel. |
+| Status chip says **Not configured** | `tokenEndpoint` in `copilot.config.json` is empty - fill it in and rebuild. |
+| AI action fails with a Direct Line / Copilot error | Check the token endpoint is still valid (Copilot Studio agents can be republished with a new one) and that the agent is published. |
+| Drag-and-drop seems to do nothing | Reload the extension fully at `chrome://extensions` *and* hard-refresh the page tab - an extension reload alone leaves old content scripts orphaned on already-open tabs. |
+| OCR (AI vision) says capability not configured | Set `ocrCapabilityConfigured: false` in `copilot.config.json` if your agent genuinely has no OCR-capable tool, or configure one in Copilot Studio and set it back to `true`. |
+| Weather says "could not load" | The browser couldn't reach `api.open-meteo.com` - check network/firewall, or try `mockMode: true` to confirm the rest of the UI works. |
 
-## 11. Security & privacy notes (POC)
+## 7. Security notes
 
-* Page text is sent to your local backend and from there to the Gemini API. Do **not** use with data that policy forbids sending to Google. Consider Vertex AI / an approved endpoint for production.
-* The backend binds to `127.0.0.1` only. Only a 500-character preview of the input and the AI output are logged to SQLite (form submissions are stored in full, as typed); delete via **History → Clear**.
-* Page content is treated as untrusted in the prompt (basic prompt-injection hardening). Person / Company answers are based on the page text; any general knowledge is labelled *unverified*.
-* The extension asks for access to all websites (`<all_urls>`) because widgets and OCR screenshots must work on any third-party site. E-mail content is sent through your own SMTP server only.
-* Before wider rollout: restrict `matches` / `host_permissions`, add authentication to the API, and use a managed secret store instead of `.env`.
+- Page text and (for OCR) image bytes go straight from the browser to Copilot Studio's Direct
+  Line API over HTTPS - nothing passes through any server you control.
+- The token endpoint in `copilot.config.json` only ever issues short-lived, scoped tokens; it
+  never exposes a long-lived secret. Still, anyone who has this extension's `dist` folder can call
+  that endpoint directly, so don't point it at an agent you wouldn't want arbitrary people chatting
+  with.
+- There is no logging, no history, and no database - nothing about what users type or see is
+  stored anywhere by this project.
