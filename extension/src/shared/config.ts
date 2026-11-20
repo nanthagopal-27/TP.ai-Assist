@@ -31,6 +31,8 @@ export const STORAGE_KEYS = {
   widgets: 'orbit.widgets',
   toolbar: 'orbit.toolbar',
   dragLayout: 'orbit.dragLayout',
+  toolbarPos: 'orbit.toolbarPos',
+  toolbarMin: 'orbit.toolbarMin',
 } as const;
 
 export const LANGUAGES = [

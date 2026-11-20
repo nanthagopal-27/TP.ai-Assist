@@ -9,6 +9,9 @@ export interface Mounted {
   out?: HTMLElement;
   inlineOut?: HTMLElement;
   fill?: (text: string) => void;
+  /** Ancestors whose min-height was pinned to make room for this widget (see
+   *  freezeShrinkableAncestors in widgets.ts) - released, reference-counted, on unmount. */
+  frozenAncestors?: Element[];
 }
 
 /** What the engine offers to the individual component builders (avoids circular imports). */

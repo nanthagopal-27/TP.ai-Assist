@@ -226,7 +226,11 @@ export const PICKER_CSS = `
 export const TOOLBAR_CSS = `
 .tbar{display:flex;align-items:center;gap:8px;background:#1f1f1f;color:#f2f2f2;border-radius:999px;padding:5px 8px 5px 12px;
   box-shadow:0 6px 22px rgba(0,0,0,.35);max-width:calc(100vw - 16px);border:1px solid #3a3a3a}
-.tbrand{display:flex;align-items:center;gap:7px;font:700 12px/1 "Segoe UI",Arial,sans-serif;white-space:nowrap;padding-right:8px;border-right:1px solid #444}
+.tbrand{display:flex;align-items:center;gap:7px;font:700 12px/1 "Segoe UI",Arial,sans-serif;white-space:nowrap;padding-right:8px;border-right:1px solid #444;cursor:grab;touch-action:none}
+.tbrand.dragging{cursor:grabbing}
+.tbar.min .tbrand{border-right:none;padding-right:0}
+.tbar.min .chips,.tbar.min .xbtn{display:none}
+.tlogo{width:20px;height:20px;display:block;border-radius:50%;background:#fff;padding:3px;box-sizing:border-box;pointer-events:none;-webkit-user-drag:none}
 .dot{width:8px;height:8px;border-radius:50%;background:#e0e0e0}
 .chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0;padding:1px}
 .chips::-webkit-scrollbar{display:none}

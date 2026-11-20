@@ -41,11 +41,11 @@ export interface Draft {
 
 export const EMAIL_RE = /^[A-Za-z0-9._%+\-']+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/;
 
-/** Kinds whose defaults aren't valid to place as-is (e.g. a button needs a link, a form needs
- *  fields) - these always open the properties panel for setup before placement, in both the
- *  on-page toolbar and the side panel. Every other kind can be placed immediately with its
- *  defaults and edited afterward via the hover toolbar. */
-export const NEEDS_SETUP_FIRST = new Set<WidgetKind>(['button', 'form']);
+/** Kinds that still force the properties panel open before placement (both on-page toolbar and
+ *  side panel). A Link Button used to be in this set too (a link's useless with no URL) - now it
+ *  drops immediately with an empty/placeholder URL, like everything else, and gets its real URL
+ *  via the hover toolbar's Edit button afterward. */
+export const NEEDS_SETUP_FIRST = new Set<WidgetKind>(['form']);
 
 export const newFieldId = () => `f_${Math.random().toString(36).slice(2, 8)}`;
 

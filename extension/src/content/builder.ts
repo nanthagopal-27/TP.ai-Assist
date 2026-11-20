@@ -12,7 +12,7 @@ import {
   COMPONENT_META, defaultsFor, draftFromWidget, draftIssues, finalizeDraft, isFieldKind, needsOptions, newFieldId,
   type Draft,
 } from '../shared/draft';
-import { attachStyles, h, HOST_ATTR } from './dom';
+import { attachStyles, clamp, h, HOST_ATTR } from './dom';
 import { WIDGET_CSS, TOOLBAR_CSS } from './styles';
 import { beginDragPlacement, getDragLayout, getWidgetDef, hooks, NEEDS_SETUP_FIRST, updateWidget } from './widgets';
 
@@ -83,7 +83,9 @@ export function initToolbar(): void {
   // ---- chip bar
   const chips = new Map<string, HTMLButtonElement>();
   const bar = h('div', { class: 'tbar' });
-  bar.append(h('div', { class: 'tbrand', title: `${PRODUCT_NAME} - widget builder` }, h('span', { class: 'dot' }), 'Widgets'));
+  const logo = h('img', { class: 'tlogo', src: chrome.runtime.getURL('logo.svg'), alt: '' });
+  const brand = h('div', { class: 'tbrand', title: `${PRODUCT_NAME} - drag to move, click to minimize` }, logo);
+  bar.append(brand);
   const scroller = h('div', { class: 'chips' });
   for (const m of COMPONENT_META) {
     const b = h('button', { class: 'chip', type: 'button', title: m.hint }, h('span', { class: 'g' }, GLYPH[m.kind] ?? '•'), m.label);
@@ -93,17 +95,11 @@ export function initToolbar(): void {
     // Button / Form can be configured first, then dragged), otherwise plain defaults.
     let suppressNextClick = false;
     b.addEventListener('pointerdown', (e: PointerEvent) => {
+      // Drag always places immediately, incomplete setup and all (e.g. a Link Button with no
+      // URL yet, a Form with no fields yet) - edit it afterward via the hover toolbar's Edit
+      // button, same as every other widget. Validation no longer blocks the drag itself.
       const usingOpenDraft = draft && draft.kind === m.kind && !draft.editingId;
       const source = usingOpenDraft ? draft! : defaultsFor(m.kind);
-      if (usingOpenDraft) {
-        // Richer, per-field validation (duplicate names, bad regex, etc.) - placementIssue()
-        // inside beginDragPlacement only does the bare minimum (e.g. "has a URL at all").
-        const issues = draftIssues(source);
-        if (issues.length) {
-          showPanelErrors(issues);
-          return;
-        }
-      }
       const f = finalizeDraft(source);
       const r = beginDragPlacement(
         { kind: f.kind, mode: f.mode, props: { ...f.props, layout: f.props.layout ?? getDragLayout() }, label: f.label, url: f.url, newTab: f.newTab },
@@ -177,6 +173,55 @@ export function initToolbar(): void {
   chrome.storage.onChanged.addListener((chg, area) => {
     if (area === 'local' && chg[STORAGE_KEYS.toolbar]) setVisible(chg[STORAGE_KEYS.toolbar].newValue === true);
   });
+
+  // ------------------------------------------------------------ drag to move, click to minimize
+  let minimized = false;
+  const setMinimized = (v: boolean): void => {
+    minimized = v;
+    bar.classList.toggle('min', v);
+  };
+  const setPos = (x: number, y: number): void => {
+    const w = host.getBoundingClientRect().width || 48;
+    host.style.left = `${clamp(x, 0, innerWidth - w)}px`;
+    host.style.top = `${clamp(y, 0, innerHeight - 40)}px`;
+    host.style.transform = 'none';
+  };
+  brand.addEventListener('pointerdown', (e: PointerEvent) => {
+    const startRect = host.getBoundingClientRect();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let dragged = false;
+    brand.setPointerCapture(e.pointerId);
+    brand.classList.add('dragging');
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (!dragged && Math.hypot(dx, dy) > 4) dragged = true;
+      if (dragged) setPos(startRect.left + dx, startRect.top + dy);
+    };
+    const up = () => {
+      brand.removeEventListener('pointermove', move);
+      brand.removeEventListener('pointerup', up);
+      brand.classList.remove('dragging');
+      if (dragged) {
+        const r = host.getBoundingClientRect();
+        void chrome.storage.local.set({ [STORAGE_KEYS.toolbarPos]: { x: r.left, y: r.top } });
+      } else {
+        // No real movement - a plain click on the logo, not a drag: toggle minimized instead.
+        const next = !minimized;
+        setMinimized(next);
+        void chrome.storage.local.set({ [STORAGE_KEYS.toolbarMin]: next });
+      }
+    };
+    brand.addEventListener('pointermove', move);
+    brand.addEventListener('pointerup', up);
+  });
+
+  void chrome.storage.local.get([STORAGE_KEYS.toolbarPos, STORAGE_KEYS.toolbarMin]).then((s) => {
+    const pos = s[STORAGE_KEYS.toolbarPos] as { x: number; y: number } | undefined;
+    if (pos) setPos(pos.x, pos.y);
+    setMinimized(s[STORAGE_KEYS.toolbarMin] === true);
+  }).catch(() => undefined);
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && draft && !placing) closePanel();
   });

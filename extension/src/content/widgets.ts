@@ -249,7 +249,7 @@ function mount(def: WidgetDef): boolean {
   isolateEvents(host);
 
   if (def.mode === 'inline' && anchor && def.anchor) {
-    freezeShrinkableAncestors(anchor);
+    m.frozenAncestors = freezeShrinkableAncestors(anchor);
     if (def.props?.layout === 'column') {
       // User explicitly chose "stacked" - never join a row, no matter what's next door.
       anchor.insertAdjacentElement(def.anchor.position, host);
@@ -329,16 +329,46 @@ function insertWidgetHost(anchor: Element, position: InsertPosition, host: HTMLE
  *  overflow it can actually see, so this runs first: pin every such ancestor's height at what it
  *  currently measures, right before the new content goes in, so the layout engine is forced to
  *  produce a real, visible overflow instead - which the overflow fix then catches normally. */
-function freezeShrinkableAncestors(from: Element): void {
+/** Tracks every ancestor currently frozen by some widget, how many widgets rely on that freeze,
+ *  and what its min-height was before - so removing a widget can release exactly its own share
+ *  of the freeze, and only actually un-freeze an ancestor once nothing placed is depending on it
+ *  anymore (restoring its original min-height rather than just deleting the property, in case it
+ *  had one of its own). */
+const frozenAncestors = new Map<Element, { original: string; count: number }>();
+
+function freezeShrinkableAncestors(from: Element): Element[] {
+  const frozen: Element[] = [];
   let cur: Element | null = from;
   for (let i = 0; i < 20 && cur && cur !== document.documentElement; i++) {
     const el = cur as HTMLElement;
     const cs = getComputedStyle(el);
     const match = (cs.display.includes('flex') || cs.display.includes('grid')) && (cs.overflowY === 'hidden' || cs.overflow === 'hidden');
-    const height = el.getBoundingClientRect().height;
-    console.log('[Orbit] freezeShrinkableAncestors', { i, tag: el.tagName, cls: el.className, display: cs.display, overflowY: cs.overflowY, overflow: cs.overflow, height, match }); // TEMP diagnostic
-    if (match) el.style.setProperty('min-height', `${height}px`, 'important');
+    if (match) {
+      const height = el.getBoundingClientRect().height;
+      let entry = frozenAncestors.get(el);
+      if (!entry) {
+        entry = { original: el.style.minHeight, count: 0 };
+        frozenAncestors.set(el, entry);
+      }
+      entry.count++;
+      el.style.setProperty('min-height', `${height}px`, 'important');
+      frozen.push(el);
+    }
     cur = cur.parentElement;
+  }
+  return frozen;
+}
+
+/** The other half of freezeShrinkableAncestors - called on unmount. */
+function releaseFrozenAncestors(elements: Element[] | undefined): void {
+  for (const el of elements ?? []) {
+    const entry = frozenAncestors.get(el);
+    if (!entry) continue;
+    entry.count--;
+    if (entry.count > 0) continue;
+    frozenAncestors.delete(el);
+    if (entry.original) (el as HTMLElement).style.minHeight = entry.original;
+    else (el as HTMLElement).style.removeProperty('min-height');
   }
 }
 
@@ -360,15 +390,16 @@ function ensureScrollable(): void {
     const clips = cs.overflowY === 'hidden' || cs.overflow === 'hidden';
     if (clips && el.scrollHeight > el.clientHeight + 1) {
       el.style.setProperty('overflow-y', 'auto', 'important');
-      console.log('[Orbit] ensureScrollable: fixed', el.tagName, el.className); // TEMP diagnostic
     }
   }
 }
 
 function unmount(id: string): void {
-  const parent = mounted.get(id)?.host.parentElement;
-  mounted.get(id)?.host.remove();
+  const m = mounted.get(id);
+  const parent = m?.host.parentElement;
+  m?.host.remove();
   mounted.delete(id);
+  releaseFrozenAncestors(m?.frozenAncestors);
   // If that host's parent was a row wrapper WE created for grouping (see insertWidgetHost),
   // removing it can leave an empty - or pointlessly single-item - wrapper still taking up space.
   if (parent?.hasAttribute(ROW_ATTR)) {
@@ -570,16 +601,17 @@ export function initNativeDragAcceptor(): void {
   }, true);
 }
 
-function placementIssue(req: WidgetPlaceRequest): string | null {
+function placementIssue(): string | null {
   if (defs.length >= MAX_WIDGETS_PER_PAGE) return `Limit of ${MAX_WIDGETS_PER_PAGE} widgets per page reached.`;
-  if (req.kind === 'button' && !normalizeUrl(req.url ?? '')) return 'Enter a valid http(s) link first.';
-  if (req.kind === 'form' && !req.props?.fields?.length) return 'Add at least one field to the form.';
+  // A Link Button used to also require a valid URL here before it could be placed at all - now
+  // it can be dropped immediately with an empty one and edited afterward via the hover toolbar's
+  // Edit button, same as every other widget kind.
   return null;
 }
 
 export function beginPlacement(req: WidgetPlaceRequest): { ok: boolean; message?: string } {
   cancelPlacement();
-  const issue = placementIssue(req);
+  const issue = placementIssue();
   if (issue) return { ok: false, message: issue };
 
   cancelPicker = startPicker({
@@ -615,7 +647,7 @@ export function beginDragPlacement(
   onDragEnd?: (didDrag: boolean) => void,
 ): { ok: boolean; message?: string } {
   cancelPlacement();
-  const issue = placementIssue(req);
+  const issue = placementIssue();
   if (issue) return { ok: false, message: issue };
 
   const startX = e.clientX;
@@ -769,8 +801,11 @@ export function moveWidget(id: string): { ok: boolean; message?: string } {
     onCancel: () => (cancelPicker = null),
     onPick: (r) => {
       cancelPicker = null;
-      unmount(id);
+      // Resolve the new anchor BEFORE unmounting the widget being moved - unmounting it can
+      // itself mutate nearby DOM (e.g. unwrapping a row that only had this widget and one
+      // other left in it), and computing the anchor afterward risked it already being stale.
       applyPick(def, r, 'inline');
+      unmount(id);
       mount(def);
       void persist();
       safeSend({ type: 'ORBIT_WIDGET_EVENT', event: 'changed', id });

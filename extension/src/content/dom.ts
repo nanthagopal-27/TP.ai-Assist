@@ -52,6 +52,17 @@ export function cssPath(el: Element): string {
   let cur: Element | null = el;
   while (cur && cur.nodeType === 1) {
     const tag = cur.tagName.toLowerCase();
+    // A placed widget's own host already carries a globally-unique id (its HOST_ATTR value) -
+    // use that directly instead of counting siblings. Position-based nth-of-type is fragile
+    // right here specifically: moving/removing a widget can itself mutate the DOM around a
+    // nearby widget (e.g. unwrapping a row wrapper once only one widget is left in it), so a
+    // sibling-count selector computed in that same moment can go stale before it's ever used,
+    // silently falling back to floating placement instead of the inline spot the user picked.
+    const hostId = cur.getAttribute(HOST_ATTR);
+    if (hostId && document.querySelectorAll(`[${HOST_ATTR}="${CSS.escape(hostId)}"]`).length === 1) {
+      parts.unshift(`[${HOST_ATTR}="${CSS.escape(hostId)}"]`);
+      break;
+    }
     if (cur.id && stableId(cur.id)) {
       const sel = `#${CSS.escape(cur.id)}`;
       if (document.querySelectorAll(sel).length === 1) {
